@@ -1,4 +1,4 @@
-<!DOCTYPE html>
++<!DOCTYPE html>
 <html lang="en-ZM">
 <head>
 <meta charset="UTF-8">
@@ -4484,6 +4484,20 @@ function eventItemHTML(e) {
     initSocBtns();
   }
 })();
+async function uploadToBlob(file) {
+  const res = await fetch('/api/upload?filename=' + encodeURIComponent(file.name), {
+    method: 'POST',
+    body: file
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Upload failed');
+  }
+
+  const blob = await res.json();
+  return blob.url; // this is the public URL to store instead of base64
+}
 </script>
 </body>
 </html>
