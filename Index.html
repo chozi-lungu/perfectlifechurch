@@ -3837,6 +3837,7 @@ async function handleHeroPhotoUpload(slot, input) {
     initHeroSlideshow();
     toast(' Hero slide ' + slot + ' saved', 'success');
     adminTab('photos');
+    syncSitePhotoConfig();
   } catch (e) {
     toast('⚠️ Upload failed — ' + (e.message || 'try again'), 'error');
   }
@@ -3849,6 +3850,7 @@ function removeHeroPhoto(slot) {
   initHeroSlideshow();
   toast('Slide ' + slot + ' removed', 'default');
   adminTab('photos');
+  syncSitePhotoConfig();
 }
 
 // ====== TOAST ======
@@ -3865,7 +3867,8 @@ function toast(msg, type = 'default') {
 }
 
 // ====== INIT ======
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await hydrateSitePhotoConfigFromServer();
   renderSermons(SERMONS);
   renderMinistries();
   renderEvents();
@@ -4072,6 +4075,7 @@ async function handlePhotoUpload(slot, input) {
     applyPhoto(slot, url);
     toast(' Photo uploaded', 'success');
     adminTab('photos');
+    syncSitePhotoConfig();
   } catch (e) {
     toast('⚠️ Upload failed — ' + (e.message || 'try again'), 'error');
   }
@@ -4091,6 +4095,7 @@ function removePhoto(slot) {
   initWWACarousel();
   toast('Photo removed', 'default');
   adminTab('photos');
+  syncSitePhotoConfig();
 }
 
 // ====== EVENT PHOTO MANAGEMENT ======
@@ -4105,6 +4110,7 @@ async function handleEventPhotoUpload(eventId, input) {
     renderEvents();
     toast('📸 Event photo saved', 'success');
     adminTab('events');
+    syncSitePhotoConfig();
   } catch (e) {
     toast('⚠️ Upload failed — ' + (e.message || 'try again'), 'error');
   }
@@ -4117,6 +4123,7 @@ function removeEventPhoto(eventId) {
   renderEvents();
   toast('Event photo removed', 'default');
   adminTab('events');
+  syncSitePhotoConfig();
 }
 
 function loadSavedPhotos() {
@@ -4466,6 +4473,72 @@ async function uploadToBlob(file) {
 
   const blob = await res.json();
   return blob.url; // this is the public URL to store instead of base64
+}
+
+// ====== CROSS-DEVICE PHOTO CONFIG SYNC ======
+// localStorage only lives on the device that made the change. These helpers
+// mirror the "which slot has which Blob URL" mapping to /api/config so every
+// device — not just the one that uploaded — shows the same photos.
+const SITE_PHOTO_KEY_PREFIXES = ['gfc_photo_', 'gfc_hero_photo_', 'gfc_event_photo_'];
+
+function isSitePhotoKey(key) {
+  return !!key && SITE_PHOTO_KEY_PREFIXES.some(function(p) { return key.indexOf(p) === 0; });
+}
+
+function collectLocalPhotoConfig() {
+  const cfg = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (isSitePhotoKey(k)) {
+      const v = localStorage.getItem(k);
+      if (v) cfg[k] = v;
+    }
+  }
+  return cfg;
+}
+
+// Pull the shared config down on page load. The server copy is treated as
+// authoritative — it replaces (not merges with) whatever this browser has
+// cached locally, so uploads AND removals from other devices show up here.
+async function hydrateSitePhotoConfigFromServer() {
+  try {
+    const res = await fetch('/api/config', { cache: 'no-store' });
+    if (!res.ok) return false;
+    const remote = await res.json();
+
+    const staleKeys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (isSitePhotoKey(k)) staleKeys.push(k);
+    }
+    staleKeys.forEach(function(k) { localStorage.removeItem(k); });
+
+    Object.keys(remote || {}).forEach(function(k) {
+      if (isSitePhotoKey(k) && remote[k]) localStorage.setItem(k, remote[k]);
+    });
+    return true;
+  } catch (e) {
+    console.warn('Photo config load failed — showing this device\'s cached photos only', e);
+    return false;
+  }
+}
+
+// Push this device's current photo mapping up after every upload/removal.
+async function syncSitePhotoConfig() {
+  try {
+    const cfg = collectLocalPhotoConfig();
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg)
+    });
+    if (!res.ok) throw new Error('Config save failed');
+    return true;
+  } catch (e) {
+    console.warn('Photo config sync failed', e);
+    toast('⚠️ Saved on this device, but other devices won\'t see it — check your connection and retry', 'error');
+    return false;
+  }
 }
 </script>
 </body>
