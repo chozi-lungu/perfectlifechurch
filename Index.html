@@ -4500,11 +4500,20 @@ function collectLocalPhotoConfig() {
 // Pull the shared config down on page load. The server copy is treated as
 // authoritative — it replaces (not merges with) whatever this browser has
 // cached locally, so uploads AND removals from other devices show up here.
+window.PHOTO_CONFIG_STATUS = { checked: false, ok: false, error: null, remote: null };
+
 async function hydrateSitePhotoConfigFromServer() {
   try {
     const res = await fetch('/api/config', { cache: 'no-store' });
-    if (!res.ok) return false;
+    if (!res.ok) {
+      const body = await res.text().catch(function() { return ''; });
+      window.PHOTO_CONFIG_STATUS = { checked: true, ok: false, error: 'HTTP ' + res.status + ': ' + body, remote: null };
+      console.error('[photo-config] /api/config returned', res.status, body);
+      return false;
+    }
     const remote = await res.json();
+    window.PHOTO_CONFIG_STATUS = { checked: true, ok: true, error: null, remote: remote };
+    console.log('[photo-config] loaded from server:', remote);
 
     const staleKeys = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -4518,7 +4527,8 @@ async function hydrateSitePhotoConfigFromServer() {
     });
     return true;
   } catch (e) {
-    console.warn('Photo config load failed — showing this device\'s cached photos only', e);
+    window.PHOTO_CONFIG_STATUS = { checked: true, ok: false, error: e.message, remote: null };
+    console.error('[photo-config] hydrate failed — showing this device\'s cached photos only:', e);
     return false;
   }
 }
