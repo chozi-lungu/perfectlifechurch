@@ -2,9 +2,10 @@
 // Shared JSON config blob so every device sees the same photo uploads.
 // Uses the same Vercel Blob store as /api/upload.js.
 // Deliberately avoids del() and allowOverwrite — not all @vercel/blob
-// versions ship those, and importing a name that doesn't exist crashes
-// the whole function before it can even respond. Only put() + list() are
-// used here, since put() is already proven working by /api/upload.js.
+// versions ship those. Only put() + list() are used, matching the same
+// static-import style as /api/upload.js (a dynamic import() here caused
+// Vercel's per-function bundler to skip including the package entirely).
+import { put, list } from '@vercel/blob';
 
 export const config = { api: { bodyParser: false } };
 
@@ -27,7 +28,7 @@ function readJsonBody(req) {
   });
 }
 
-async function getLatestConfigBlob(list, token) {
+async function getLatestConfigBlob(token) {
   const { blobs } = await list({ prefix: CONFIG_PREFIX, token });
   if (!blobs || !blobs.length) return null;
   blobs.sort((a, b) => {
@@ -50,22 +51,6 @@ async function readConfigBlob(match) {
 }
 
 export default async function handler(req, res) {
-  // Import inside the handler + inside try/catch so a missing export or
-  // version mismatch returns a real JSON error instead of crashing the
-  // whole function before we get a chance to respond.
-  let put, list;
-  try {
-    const blobLib = await import('@vercel/blob');
-    put = blobLib.put;
-    list = blobLib.list;
-    if (typeof put !== 'function' || typeof list !== 'function') {
-      throw new Error('put/list not found on @vercel/blob — check package version');
-    }
-  } catch (e) {
-    console.error('config route: failed to load @vercel/blob', e);
-    return res.status(500).json({ error: 'Failed to load @vercel/blob: ' + e.message });
-  }
-
   try {
     const token = process.env.BLOB_READ_WRITE_TOKEN;
     if (!token) {
@@ -73,7 +58,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'GET') {
-      const match = await getLatestConfigBlob(list, token);
+      const match = await getLatestConfigBlob(token);
       const data = await readConfigBlob(match);
       return res.status(200).json(data);
     }
@@ -81,7 +66,7 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const incoming = await readJsonBody(req);
 
-      const match = await getLatestConfigBlob(list, token);
+      const match = await getLatestConfigBlob(token);
       const existing = await readConfigBlob(match);
       const merged = { ...existing, ...incoming };
 
