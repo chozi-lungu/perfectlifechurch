@@ -1,14 +1,15 @@
 // /api/config.js
 // Shared JSON config blob so every device sees the same photo uploads.
 // Uses the same Vercel Blob store as /api/upload.js.
-import { put, list, del } from '@vercel/blob';
+// Deliberately avoids del() and allowOverwrite — not all @vercel/blob
+// versions ship those, and importing a name that doesn't exist crashes
+// the whole function before it can even respond. Only put() + list() are
+// used here, since put() is already proven working by /api/upload.js.
 
 export const config = { api: { bodyParser: false } };
 
-const CONFIG_PATH = 'site-config.json';
+const CONFIG_PREFIX = 'site-config/';
 
-// Read + JSON-parse the request body manually. Don't rely on a framework
-// auto-parsing req.body for us — plain Vercel Node functions don't always.
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     if (req.body && typeof req.body === 'object') {
@@ -20,15 +21,21 @@ function readJsonBody(req) {
     req.on('end', () => {
       if (!data) { resolve({}); return; }
       try { resolve(JSON.parse(data)); }
-      catch (e) { reject(new Error('Invalid JSON body')); }
+      catch (e) { reject(new Error('Invalid JSON body: ' + e.message)); }
     });
     req.on('error', reject);
   });
 }
 
-async function findExistingConfigBlob(token) {
-  const { blobs } = await list({ prefix: CONFIG_PATH, token });
-  return blobs.find((b) => b.pathname === CONFIG_PATH) || null;
+async function getLatestConfigBlob(list, token) {
+  const { blobs } = await list({ prefix: CONFIG_PREFIX, token });
+  if (!blobs || !blobs.length) return null;
+  blobs.sort((a, b) => {
+    const ta = a.uploadedAt ? new Date(a.uploadedAt).getTime() : 0;
+    const tb = b.uploadedAt ? new Date(b.uploadedAt).getTime() : 0;
+    return tb - ta;
+  });
+  return blobs[0];
 }
 
 async function readConfigBlob(match) {
@@ -43,11 +50,30 @@ async function readConfigBlob(match) {
 }
 
 export default async function handler(req, res) {
+  // Import inside the handler + inside try/catch so a missing export or
+  // version mismatch returns a real JSON error instead of crashing the
+  // whole function before we get a chance to respond.
+  let put, list;
+  try {
+    const blobLib = await import('@vercel/blob');
+    put = blobLib.put;
+    list = blobLib.list;
+    if (typeof put !== 'function' || typeof list !== 'function') {
+      throw new Error('put/list not found on @vercel/blob — check package version');
+    }
+  } catch (e) {
+    console.error('config route: failed to load @vercel/blob', e);
+    return res.status(500).json({ error: 'Failed to load @vercel/blob: ' + e.message });
+  }
+
   try {
     const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (!token) {
+      return res.status(500).json({ error: 'BLOB_READ_WRITE_TOKEN is not set in this environment' });
+    }
 
     if (req.method === 'GET') {
-      const match = await findExistingConfigBlob(token);
+      const match = await getLatestConfigBlob(list, token);
       const data = await readConfigBlob(match);
       return res.status(200).json(data);
     }
@@ -55,22 +81,12 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const incoming = await readJsonBody(req);
 
-      // Merge with existing config so two devices updating different
-      // slots at nearly the same time don't clobber each other.
-      const match = await findExistingConfigBlob(token);
+      const match = await getLatestConfigBlob(list, token);
       const existing = await readConfigBlob(match);
       const merged = { ...existing, ...incoming };
 
-      // Don't depend on `allowOverwrite` support — delete any existing
-      // blob at this path first (works on every @vercel/blob version),
-      // then write fresh with a stable, predictable filename.
-      if (match) {
-        try { await del(match.url, { token }); } catch (e) { /* ignore, put() below will still attempt to write */ }
-      }
-
-      const blob = await put(CONFIG_PATH, JSON.stringify(merged), {
+      const blob = await put(CONFIG_PREFIX + Date.now() + '.json', JSON.stringify(merged), {
         access: 'public',
-        addRandomSuffix: false,
         contentType: 'application/json',
         token,
       });
@@ -82,6 +98,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   } catch (err) {
     console.error('config route error', err);
-    return res.status(500).json({ error: err.message || 'Config error' });
+    return res.status(500).json({ error: (err && err.message) || 'Config error' });
   }
 }
