@@ -2606,7 +2606,7 @@ function renderEvents() {
 
     const safeTitle = e.title.replace(/'/g,"\\'");
     const safeDesc  = desc.replace(/'/g,"\\'");
-    const evPhoto = localStorage.getItem('gfc_event_photo_' + e.id);
+    const evPhoto = (siteConfig && siteConfig.eventPhotos) ? siteConfig.eventPhotos[e.id] : null;
     const evPhotoHTML = evPhoto
  ? '<img src="' + evPhoto + '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0"><div style="position:absolute;inset:0;background:rgba(0,0,0,.38);z-index:1"></div>'
  : '';
@@ -3113,7 +3113,7 @@ function adminTab(tab) {
  </tr></thead>
  <tbody>
                 ${events.map(function(e) {
-                  var ep = localStorage.getItem('gfc_event_photo_' + e.id);
+                  var ep = (siteConfig && siteConfig.eventPhotos) ? siteConfig.eventPhotos[e.id] : null;
                   var epCell = '<td style="white-space:nowrap;vertical-align:middle">'
                     + '<input type="file" id="evp-' + e.id + '" accept="image/*" style="display:none" onchange="handleEventPhotoUpload(' + e.id + ',this)">'
                     + (ep
@@ -3236,8 +3236,7 @@ function adminTab(tab) {
 
     // Build hero slideshow slots HTML
     const heroSlotsHTML = [1,2,3,4].map(i => {
-      const saved = localStorage.getItem('gfc_hero_photo_' + i);
-      const sizeKB = saved ? Math.round(saved.length * 0.75 / 1024) : 0;
+      const saved = (siteConfig && siteConfig.heroPhotos) ? siteConfig.heroPhotos[i] : null;
       return `
  <div style="background:#fff;border-radius:10px;border:1px solid var(--border);overflow:hidden">
  <div style="height:160px;background:#0C0C0C;position:relative;overflow:hidden">
@@ -3246,7 +3245,7 @@ function adminTab(tab) {
  : `<div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5rem;color:rgba(255,255,255,.13)"><span style="font-size:34px"></span><span style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;font-family:'Space Grotesk',sans-serif">Slide ${i}</span></div>`
             }
  <div style="position:absolute;top:8px;left:8px;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);color:rgba(201,168,76,.9);font-size:9px;font-weight:700;letter-spacing:1.2px;padding:3px 9px;border-radius:3px;text-transform:uppercase;font-family:'Space Grotesk',sans-serif">SLIDE ${i}</div>
-            ${saved ? `<div style="position:absolute;bottom:8px;right:8px;background:rgba(26,110,60,.88);color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;letter-spacing:.3px">${sizeKB} KB</div>` : ''}
+            ${saved ? `<div style="position:absolute;bottom:8px;right:8px;background:rgba(26,110,60,.88);color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;letter-spacing:.3px">Synced</div>` : ''}
  </div>
  <div style="padding:1rem">
  <input type="file" id="hero-photo-input-${i}" accept="image/*" style="display:none" onchange="handleHeroPhotoUpload(${i},this)">
@@ -3294,8 +3293,7 @@ function adminTab(tab) {
  </div>
  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.25rem">
         ${slots.map(s => {
-          const saved = localStorage.getItem('gfc_photo_' + s.id);
-          const sizeKB = saved ? Math.round(saved.length * 0.75 / 1024) : 0;
+          const saved = (siteConfig && siteConfig.wwaPhotos) ? siteConfig.wwaPhotos[s.id] : null;
           return `
  <div style="background:#fff;border-radius:10px;border:1px solid var(--border);overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.04)">
  <div style="height:210px;background:var(--deep);position:relative;overflow:hidden">
@@ -3304,7 +3302,7 @@ function adminTab(tab) {
  : `<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5rem;color:rgba(255,255,255,.18)"><span style="font-size:40px"></span><span style="font-size:11px;letter-spacing:1px;text-transform:uppercase;font-family:'Space Grotesk',sans-serif">No photo yet</span></div>`
               }
  <div style="position:absolute;top:10px;left:10px;background:rgba(12,12,12,.7);backdrop-filter:blur(6px);color:rgba(201,168,76,.9);font-size:9px;font-weight:700;letter-spacing:1.2px;padding:4px 9px;border-radius:3px;text-transform:uppercase;font-family:'Space Grotesk',sans-serif">${s.tag}</div>
-              ${saved ? `<div style="position:absolute;bottom:10px;right:10px;background:rgba(26,110,60,.85);color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;letter-spacing:.5px">${sizeKB} KB</div>` : ''}
+              ${saved ? `<div style="position:absolute;bottom:10px;right:10px;background:rgba(26,110,60,.85);color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;letter-spacing:.5px">Synced</div>` : ''}
  </div>
  <div style="padding:1.25rem">
  <div style="font-size:14px;font-weight:700;color:var(--deep);margin-bottom:3px">${s.label}</div>
@@ -3618,20 +3616,16 @@ function sfPlatformChanged() {
   }
 }
 
-async function handleSermonThumbUpload(input) {
+function handleSermonThumbUpload(input) {
   const file = input.files[0];
   if (!file) return;
   if (!file.type.startsWith('image/')) { toast('Please upload a JPG, PNG, or WebP image', 'error'); return; }
-  toast('⏳ Uploading thumbnail...', 'default');
-  try {
-    const url = await uploadToBlob(file);
-    sfCurrentThumb = url;
+  compressPhoto(file, 500, 0.75, (dataUrl) => {
+    sfCurrentThumb = dataUrl;
     sfPlatformChanged();
     toast(' Thumbnail uploaded', 'success');
-  } catch (e) {
-    toast('⚠️ Thumbnail upload failed — ' + (e.message || 'try again'), 'error');
-  }
-  input.value = '';
+    input.value = '';
+  });
 }
 
 function adminOpenSermonForm(clear = true) {
@@ -3757,16 +3751,16 @@ let heroSlideIndex = 0;
 let heroSlideTimer = null;
 let heroSlides = [];
 
-function initHeroSlideshow() {
+async function initHeroSlideshow() {
   const container = document.getElementById('hero-slideshow');
   const dotsWrap  = document.getElementById('hero-slide-dots');
   if (!container) return;
 
-  // Collect uploaded photos in order
+  const cfg = await getSiteConfig();
   heroSlides = [];
   for (let i = 1; i <= HERO_SLIDE_TOTAL; i++) {
-    const saved = localStorage.getItem('gfc_hero_photo_' + i);
-    if (saved) heroSlides.push(saved);
+    const url = cfg.heroPhotos[i];
+    if (url) heroSlides.push(url);
   }
 
   if (heroSlides.length === 0) {
@@ -3826,31 +3820,43 @@ function updateHeroDots() {
 }
 
 // ====== HERO PHOTO ADMIN ======
-async function handleHeroPhotoUpload(slot, input) {
+function handleHeroPhotoUpload(slot, input) {
   const file = input.files[0];
   if (!file) return;
   if (!file.type.startsWith('image/')) { toast('Please upload a JPG, PNG, or WebP image', 'error'); return; }
-  toast('⏳ Uploading hero photo...', 'default');
-  try {
-    const url = await uploadToBlob(file);
-    localStorage.setItem('gfc_hero_photo_' + slot, url);
-    initHeroSlideshow();
-    toast(' Hero slide ' + slot + ' saved', 'success');
-    adminTab('photos');
-    syncSitePhotoConfig();
-  } catch (e) {
-    toast('⚠️ Upload failed — ' + (e.message || 'try again'), 'error');
-  }
-  input.value = '';
+  toast('⏳ Compressing photo...', 'default');
+  compressPhotoToFile(file, 1600, 0.82, async (blobFile) => {
+    try {
+      toast('⏳ Uploading photo...', 'default');
+      const url = await uploadToBlob(blobFile);
+      const cfg = await getSiteConfig();
+      cfg.heroPhotos[slot] = url;
+      await saveSiteConfig();
+      initHeroSlideshow();
+      toast('✅ Hero slide ' + slot + ' saved and synced', 'success');
+      adminTab('photos');
+    } catch (err) {
+      console.error(err);
+      toast('⚠️ Upload failed: ' + (err.message || 'please try again'), 'error');
+    } finally {
+      input.value = '';
+    }
+  });
 }
 
-function removeHeroPhoto(slot) {
+async function removeHeroPhoto(slot) {
   if (!confirm('Remove slide ' + slot + '? This cannot be undone.')) return;
-  localStorage.removeItem('gfc_hero_photo_' + slot);
-  initHeroSlideshow();
-  toast('Slide ' + slot + ' removed', 'default');
-  adminTab('photos');
-  syncSitePhotoConfig();
+  try {
+    const cfg = await getSiteConfig();
+    delete cfg.heroPhotos[slot];
+    await saveSiteConfig();
+    initHeroSlideshow();
+    toast('Slide ' + slot + ' removed', 'default');
+    adminTab('photos');
+  } catch (err) {
+    console.error(err);
+    toast('⚠️ Failed to remove slide', 'error');
+  }
 }
 
 // ====== TOAST ======
@@ -3867,8 +3873,7 @@ function toast(msg, type = 'default') {
 }
 
 // ====== INIT ======
-document.addEventListener('DOMContentLoaded', async () => {
-  await hydrateSitePhotoConfigFromServer();
+document.addEventListener('DOMContentLoaded', () => {
   renderSermons(SERMONS);
   renderMinistries();
   renderEvents();
@@ -4064,66 +4069,89 @@ function compressPhoto(file, maxWidth, quality, callback) {
   reader.readAsDataURL(file);
 }
 
-async function handlePhotoUpload(slot, input) {
+function handlePhotoUpload(slot, input) {
   const file = input.files[0];
   if (!file) return;
   if (!file.type.startsWith('image/')) { toast('Please upload a JPG, PNG, or WebP file', 'error'); return; }
-  toast('⏳ Uploading photo...', 'default');
-  try {
-    const url = await uploadToBlob(file);
-    localStorage.setItem('gfc_photo_' + slot, url);
-    applyPhoto(slot, url);
-    toast(' Photo uploaded', 'success');
-    adminTab('photos');
-    syncSitePhotoConfig();
-  } catch (e) {
-    toast('⚠️ Upload failed — ' + (e.message || 'try again'), 'error');
-  }
-  // Clear input so same file can be re-selected if needed
-  input.value = '';
+  toast('⏳ Compressing photo...', 'default');
+  compressPhotoToFile(file, 900, 0.78, async (blobFile) => {
+    try {
+      toast('⏳ Uploading photo...', 'default');
+      const url = await uploadToBlob(blobFile);
+      const cfg = await getSiteConfig();
+      cfg.wwaPhotos[slot] = url;
+      await saveSiteConfig();
+      applyPhoto(slot, url);
+      toast('✅ Photo saved and synced across devices', 'success');
+      adminTab('photos');
+    } catch (err) {
+      console.error(err);
+      toast('⚠️ Upload failed: ' + (err.message || 'please try again'), 'error');
+    } finally {
+      input.value = '';
+    }
+  });
 }
 
-function applyPhoto(slot, url) {
+function applyPhoto(slot, dataUrl) {
   // localStorage already set by handlePhotoUpload before this is called.
   // Just rebuild the carousel to pick up the new image.
   initWWACarousel();
 }
 
-function removePhoto(slot) {
+async function removePhoto(slot) {
   if (!confirm('Remove this photo? The placeholder will show again.')) return;
-  localStorage.removeItem('gfc_photo_' + slot);
-  initWWACarousel();
-  toast('Photo removed', 'default');
-  adminTab('photos');
-  syncSitePhotoConfig();
+  try {
+    const cfg = await getSiteConfig();
+    delete cfg.wwaPhotos[slot];
+    await saveSiteConfig();
+    initWWACarousel();
+    toast('Photo removed', 'default');
+    adminTab('photos');
+  } catch (err) {
+    console.error(err);
+    toast('⚠️ Failed to remove photo', 'error');
+  }
 }
 
 // ====== EVENT PHOTO MANAGEMENT ======
-async function handleEventPhotoUpload(eventId, input) {
+function handleEventPhotoUpload(eventId, input) {
   var file = input.files[0];
   if (!file) return;
   if (!file.type.startsWith('image/')) { toast('Please upload an image file', 'error'); return; }
-  toast('⏳ Uploading...', 'default');
-  try {
-    var url = await uploadToBlob(file);
-    localStorage.setItem('gfc_event_photo_' + eventId, url);
-    renderEvents();
-    toast('📸 Event photo saved', 'success');
-    adminTab('events');
-    syncSitePhotoConfig();
-  } catch (e) {
-    toast('⚠️ Upload failed — ' + (e.message || 'try again'), 'error');
-  }
-  input.value = '';
+  toast('&#9203; Compressing...', 'default');
+  compressPhotoToFile(file, 900, 0.80, async function(blobFile) {
+    try {
+      toast('&#9203; Uploading...', 'default');
+      var url = await uploadToBlob(blobFile);
+      var cfg = await getSiteConfig();
+      cfg.eventPhotos[eventId] = url;
+      await saveSiteConfig();
+      renderEvents();
+      toast('📸 Event photo saved and synced', 'success');
+      adminTab('events');
+    } catch (err) {
+      console.error(err);
+      toast('⚠️ Upload failed: ' + (err.message || 'please try again'), 'error');
+    } finally {
+      input.value = '';
+    }
+  });
 }
 
-function removeEventPhoto(eventId) {
+async function removeEventPhoto(eventId) {
   if (!confirm('Remove this event photo?')) return;
-  localStorage.removeItem('gfc_event_photo_' + eventId);
-  renderEvents();
-  toast('Event photo removed', 'default');
-  adminTab('events');
-  syncSitePhotoConfig();
+  try {
+    var cfg = await getSiteConfig();
+    delete cfg.eventPhotos[eventId];
+    await saveSiteConfig();
+    renderEvents();
+    toast('Event photo removed', 'default');
+    adminTab('events');
+  } catch (err) {
+    console.error(err);
+    toast('⚠️ Failed to remove photo', 'error');
+  }
 }
 
 function loadSavedPhotos() {
@@ -4143,15 +4171,17 @@ let wwaDragging = false;
 let wwaStartX   = 0;
 let wwaListened = false; // attach drag listeners only once
 
-function initWWACarousel() {
+async function initWWACarousel() {
   const wrap  = document.getElementById('wwa-carousel-wrap');
   const track = document.getElementById('wwa-carousel-track');
   const dots  = document.getElementById('wwa-car-dots');
   if (!wrap || !track || !dots) return;
 
+  const cfg = await getSiteConfig();
+
   // Build slides
   track.innerHTML = WWA_SLIDES_DEF.map((s, i) => {
-    const photo = localStorage.getItem('gfc_photo_' + s.slot);
+    const photo = cfg.wwaPhotos[s.slot];
     return `<div class="wwa-carousel-slide">
       ${photo
  ? `<img class="wwa-carousel-slide-img active" src="${photo}" alt="${s.caption}">`
@@ -4460,95 +4490,83 @@ function eventItemHTML(e) {
     initSocBtns();
   }
 })();
+// ====== SITE CONFIG (shared across devices via Vercel Blob) ======
+let siteConfig = null;
+let siteConfigLoading = null;
+
+async function getSiteConfig(force) {
+  if (siteConfig && !force) return siteConfig;
+  if (siteConfigLoading) return siteConfigLoading;
+  siteConfigLoading = fetch('/api/config')
+    .then(function(res) { return res.ok ? res.json() : {}; })
+    .then(function(data) {
+      siteConfig = (data && typeof data === 'object') ? data : {};
+      if (!siteConfig.wwaPhotos) siteConfig.wwaPhotos = {};
+      if (!siteConfig.heroPhotos) siteConfig.heroPhotos = {};
+      if (!siteConfig.eventPhotos) siteConfig.eventPhotos = {};
+      siteConfigLoading = null;
+      return siteConfig;
+    })
+    .catch(function(err) {
+      console.error('Failed to load site config:', err);
+      siteConfig = { wwaPhotos:{}, heroPhotos:{}, eventPhotos:{} };
+      siteConfigLoading = null;
+      return siteConfig;
+    });
+  return siteConfigLoading;
+}
+
+async function saveSiteConfig() {
+  const res = await fetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(siteConfig)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(function(){ return {}; });
+    throw new Error(err.error || 'Failed to save site config');
+  }
+  return res.json();
+}
+
 async function uploadToBlob(file) {
   const res = await fetch('/api/upload?filename=' + encodeURIComponent(file.name), {
     method: 'POST',
     body: file
   });
-
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
+    const err = await res.json().catch(function(){ return {}; });
     throw new Error(err.error || 'Upload failed');
   }
-
   const blob = await res.json();
-  return blob.url; // this is the public URL to store instead of base64
+  return blob.url;
 }
 
-// ====== CROSS-DEVICE PHOTO CONFIG SYNC ======
-// localStorage only lives on the device that made the change. These helpers
-// mirror the "which slot has which Blob URL" mapping to /api/config so every
-// device — not just the one that uploaded — shows the same photos.
-const SITE_PHOTO_KEY_PREFIXES = ['gfc_photo_', 'gfc_hero_photo_', 'gfc_event_photo_'];
-
-function isSitePhotoKey(key) {
-  return !!key && SITE_PHOTO_KEY_PREFIXES.some(function(p) { return key.indexOf(p) === 0; });
-}
-
-function collectLocalPhotoConfig() {
-  const cfg = {};
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (isSitePhotoKey(k)) {
-      const v = localStorage.getItem(k);
-      if (v) cfg[k] = v;
-    }
-  }
-  return cfg;
-}
-
-// Pull the shared config down on page load. The server copy is treated as
-// authoritative — it replaces (not merges with) whatever this browser has
-// cached locally, so uploads AND removals from other devices show up here.
-window.PHOTO_CONFIG_STATUS = { checked: false, ok: false, error: null, remote: null };
-
-async function hydrateSitePhotoConfigFromServer() {
-  try {
-    const res = await fetch('/api/config', { cache: 'no-store' });
-    if (!res.ok) {
-      const body = await res.text().catch(function() { return ''; });
-      window.PHOTO_CONFIG_STATUS = { checked: true, ok: false, error: 'HTTP ' + res.status + ': ' + body, remote: null };
-      console.error('[photo-config] /api/config returned', res.status, body);
-      return false;
-    }
-    const remote = await res.json();
-    window.PHOTO_CONFIG_STATUS = { checked: true, ok: true, error: null, remote: remote };
-    console.log('[photo-config] loaded from server:', remote);
-
-    const staleKeys = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (isSitePhotoKey(k)) staleKeys.push(k);
-    }
-    staleKeys.forEach(function(k) { localStorage.removeItem(k); });
-
-    Object.keys(remote || {}).forEach(function(k) {
-      if (isSitePhotoKey(k) && remote[k]) localStorage.setItem(k, remote[k]);
-    });
-    return true;
-  } catch (e) {
-    window.PHOTO_CONFIG_STATUS = { checked: true, ok: false, error: e.message, remote: null };
-    console.error('[photo-config] hydrate failed — showing this device\'s cached photos only:', e);
-    return false;
-  }
-}
-
-// Push this device's current photo mapping up after every upload/removal.
-async function syncSitePhotoConfig() {
-  try {
-    const cfg = collectLocalPhotoConfig();
-    const res = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cfg)
-    });
-    if (!res.ok) throw new Error('Config save failed');
-    return true;
-  } catch (e) {
-    console.warn('Photo config sync failed', e);
-    toast('⚠️ Saved on this device, but other devices won\'t see it — check your connection and retry', 'error');
-    return false;
-  }
+// Like compressPhoto, but hands you a real File (JPEG) instead of a base64 string —
+// needed because uploadToBlob() sends the file as a raw request body.
+function compressPhotoToFile(file, maxWidth, quality, callback) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let { width, height } = img;
+      if (width > maxWidth) {
+        height = Math.round(height * maxWidth / width);
+        width = maxWidth;
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        const name = (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg';
+        callback(new File([blob], name, { type: 'image/jpeg' }));
+      }, 'image/jpeg', quality);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 </script>
 </body>
